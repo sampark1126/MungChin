@@ -9,6 +9,8 @@
   #stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
   canvas{display:block;background:#111}
   #gear{position:fixed;top:10px;right:10px;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:#fff;font-size:20px;cursor:pointer;z-index:5}
+  #gear{transition:opacity .4s}
+  #gear.idle{opacity:0}
   #gear:hover{background:rgba(255,255,255,.35)}
   #panel{position:fixed;top:56px;right:10px;width:min(320px,calc(100vw - 20px));background:#1b1d2a;color:#eee;border-radius:12px;padding:14px;z-index:5;display:none;box-shadow:0 8px 30px rgba(0,0,0,.5);font-size:14px}
   #panel.open{display:block}
@@ -568,6 +570,14 @@ const $ = id => document.getElementById(id);
 $('names').value = game.settings.names.join('\n');
 $('count').value = game.settings.count;
 $('gear').onclick = () => $('panel').classList.toggle('open');
+// 녹화 시 화면에 안 보이도록 설정 버튼은 몇 초 뒤 숨김 (화면을 터치하면 다시 나타남)
+let gearTimer;
+function wakeGear() {
+  $('gear').classList.remove('idle'); clearTimeout(gearTimer);
+  gearTimer = setTimeout(() => { if (!$('panel').classList.contains('open')) $('gear').classList.add('idle'); }, 3000);
+}
+['pointerdown', 'pointermove', 'keydown'].forEach(ev => addEventListener(ev, wakeGear));
+wakeGear();
 $('apply').onclick = () => {
   const names = $('names').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 30);
   const count = Math.max(2, Math.min(30, +$('count').value | 0 || 12));
