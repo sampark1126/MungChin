@@ -47,6 +47,15 @@
 
 <script>
 'use strict';
+// 같은 창에서 이전 버전이 돌고 있으면 소리·루프를 먼저 정리한다 (업데이트 후 이중 재생 방지)
+(function killPrevious() {
+  try {
+    const o = window.__marble; if (!o) return;
+    if (o.Music) { clearInterval(o.Music.timer); o.Music.timer = null; o.Music.enabled = false; }
+    if (o.Sfx) { o.Sfx.enabled = false; if (o.Sfx.ctx && o.Sfx.ctx.close) o.Sfx.ctx.close(); }
+    if (o.game) { o.game.update = () => { }; if (o.game.sim) { o.game.sim.onHit = null; o.game.sim.onFinish = null; } }
+  } catch (e) { /* 정리 실패는 무시 */ }
+})();
 /* ============================================================
  * 마블 레이스 (Shorts용 9:16, 약 1분 라운드 자동 반복)
  * - 라운드마다 맵·시드·시작 위치가 바뀌고 화면 구성은 동일
@@ -580,28 +589,32 @@ function saveSettings(s) { try { localStorage.setItem('marble.settings', JSON.st
 const PENTA = [523, 587, 659, 784, 880, 1047, 1175, 1319];
 const Sfx = {
   ctx: null, master: null, enabled: true, last: {},
+  build(ctx) {   // 효과음(master)과 배경음악(musicBus)은 서로 다른 경로라 따로 켜고 끈다
+    this.ctx = ctx;
+    const comp = ctx.createDynamicsCompressor();
+    this.master = ctx.createGain(); this.master.gain.value = .8;
+    this.musicBus = ctx.createGain(); this.musicBus.gain.value = .55;
+    this.master.connect(comp); this.musicBus.connect(comp); comp.connect(ctx.destination);
+  },
+  live() { return !!(this.ctx && (this.ctx.state === 'running' || this.ctx.offline)); },
   unlock() {
     try {
-      if (!this.ctx) {
+      if (!this.ctx || this.ctx.state === 'closed') {
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) return;
-        this.ctx = new AC();
-        const comp = this.ctx.createDynamicsCompressor();
-        this.master = this.ctx.createGain(); this.master.gain.value = .8;
-        this.musicBus = this.ctx.createGain(); this.musicBus.gain.value = .55;
-        this.master.connect(comp); this.musicBus.connect(comp); comp.connect(this.ctx.destination);
+        this.build(new AC());
       }
-      if (this.ctx.state === 'suspended') this.ctx.resume();
+      if (this.ctx.state !== 'running' && this.ctx.resume) this.ctx.resume();
     } catch (e) { /* 오디오를 쓸 수 없는 환경 */ }
   },
-  get on() { return !!(this.enabled && this.ctx && this.ctx.state === 'running'); },
+  get on() { return !!(this.enabled && this.live()); },
   gate(kind, gap) {
     const n = performance.now();
     if (n - (this.last[kind] || 0) < gap) return false;
     this.last[kind] = n; return true;
   },
   tone(f, dur, type, vol, f2, delay, bus) {
-    if (!this.ctx || this.ctx.state !== 'running' || (!bus && !this.enabled)) return;
+    if (!this.live() || (!bus && !this.enabled)) return;
     const c = this.ctx, t = c.currentTime + (delay || 0);
     const o = c.createOscillator(), g = c.createGain();
     o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
@@ -612,7 +625,7 @@ const Sfx = {
     o.connect(g); g.connect(bus || this.master); o.start(t); o.stop(t + dur + .03);
   },
   noise(dur, vol, f1, f2, delay, bus) {
-    if (!this.ctx || this.ctx.state !== 'running' || (!bus && !this.enabled)) return;
+    if (!this.live() || (!bus && !this.enabled)) return;
     const c = this.ctx, t = c.currentTime + (delay || 0);
     const buf = c.createBuffer(1, Math.ceil(c.sampleRate * dur), c.sampleRate), d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -656,9 +669,9 @@ const Music = {
     [[0, 81, 2], [2, 84, 2], [4, 89, 4], [8, 84, 2], [10, 81, 2], [12, 77, 4]],
     [[0, 83, 2], [2, 86, 2], [4, 83, 2], [6, 79, 2], [8, 74, 4], [12, 79, 2], [14, 83, 2]]
   ],
-  get running() { return !!(this.timer && Sfx.enabled && Sfx.ctx && Sfx.ctx.state === 'running'); },
+  get running() { return !!(this.timer && Sfx.live()); },
   start() {
-    if (this.timer || !this.enabled || !Sfx.enabled || !Sfx.ctx) return;
+    if (this.timer || !this.enabled || !Sfx.ctx) return;
     const c = Sfx.ctx;
     Sfx.musicBus.gain.cancelScheduledValues(c.currentTime);
     Sfx.musicBus.gain.setValueAtTime(.55, c.currentTime);
@@ -674,7 +687,7 @@ const Music = {
     }
   },
   pump() {
-    const c = Sfx.ctx; if (!c || c.state !== 'running' || !this.enabled || !Sfx.enabled) return;
+    const c = Sfx.ctx; if (!this.enabled || !Sfx.live()) { if (c && c.state === 'suspended' && c.resume) c.resume(); return; }
     const dur = 60 / this.bpm / 4;
     if (this.next < c.currentTime - .3) this.next = c.currentTime + .05;   // 탭이 멈췄다 돌아온 경우
     while (this.next < c.currentTime + .15) { this.play(this.step, this.next, dur); this.next += dur; this.step++; }
@@ -682,12 +695,27 @@ const Music = {
   play(n, t, d) {
     const c = Sfx.ctx, bus = Sfx.musicBus, st = n % 16, bar = Math.floor(n / 16) % 8, delay = Math.max(0, t - c.currentTime);
     const ch = this.chords[bar];
-    if (st % 4 === 0) Sfx.tone(160, .14, 'sine', .42, 42, delay, bus);                           // 킥
-    if (st === 4 || st === 12) Sfx.noise(.12, .16, 2200, 1200, delay, bus);                      // 스네어
-    if (st % 2 === 0) Sfx.noise(.04, st % 4 === 2 ? .07 : .04, 7000, 9000, delay, bus);         // 하이햇
-    if (st % 4 === 0 || st % 4 === 3) Sfx.tone(mtof(ch[0]), d * 1.7, 'sawtooth', .13, 0, delay, bus);   // 베이스
-    Sfx.tone(mtof(ch[[0, 1, 2, 1][st % 4]] + 24), d * .9, 'triangle', .06, 0, delay, bus);       // 아르페지오
-    for (const [at, note, len] of this.lead[bar]) if (at === st) Sfx.tone(mtof(note), d * len * .95, 'square', .05, 0, delay, bus);
+    // 폰 스피커는 저음이 거의 안 나오므로 킥/베이스에 중음 성분(클릭, 옥타브 위)을 같이 넣는다
+    if (st % 4 === 0) {                                                                         // 킥
+      Sfx.tone(170, .16, 'sine', .5, 45, delay, bus);
+      Sfx.tone(300, .06, 'triangle', .3, 120, delay, bus);
+      Sfx.noise(.03, .25, 3500, 1800, delay, bus);
+    }
+    if (st === 4 || st === 12) {                                                                // 스네어
+      Sfx.noise(.14, .42, 2400, 1100, delay, bus);
+      Sfx.tone(210, .09, 'triangle', .2, 120, delay, bus);
+    }
+    if (st % 2 === 0) Sfx.noise(.05, st % 4 === 2 ? .16 : .09, 6500, 9500, delay, bus);          // 하이햇
+    if (st % 4 === 0 || st % 4 === 3) {                                                         // 베이스
+      Sfx.tone(mtof(ch[0]), d * 1.7, 'sawtooth', .14, 0, delay, bus);
+      Sfx.tone(mtof(ch[0] + 12), d * 1.5, 'square', .07, 0, delay, bus);
+    }
+    Sfx.tone(mtof(ch[[0, 1, 2, 1][st % 4]] + 24), d * .9, 'triangle', .12, 0, delay, bus);       // 아르페지오
+    for (const [at, note, len] of this.lead[bar]) {                                             // 멜로디
+      if (at !== st) continue;
+      Sfx.tone(mtof(note), d * len * .95, 'square', .09, 0, delay, bus);
+      Sfx.tone(mtof(note), d * len * .95, 'triangle', .09, 0, delay, bus);
+    }
   }
 };
 
@@ -1222,21 +1250,25 @@ function wakeGear() {
 ['pointerdown', 'pointermove', 'keydown'].forEach(ev => addEventListener(ev, wakeGear));
 // 소리: 브라우저 정책상 첫 터치 이후에 켜짐. 🔊/🔇 버튼으로 끄고 켤 수 있음
 try { Sfx.enabled = localStorage.getItem('marble.sound') !== '0'; } catch (e) { }
-function syncSnd() { $('snd').textContent = Sfx.enabled && Sfx.on ? '🔊' : '🔇'; }
+// 🔊 = 효과음만, 🎵 = 배경음악만. 두 버튼은 서로 영향을 주지 않는다.
+function syncSnd() { $('snd').textContent = Sfx.enabled ? '🔊' : '🔇'; }
 try { Music.enabled = localStorage.getItem('marble.music') !== '0'; } catch (e) { }
-function syncMus() { $('mus').textContent = Music.enabled && Sfx.enabled ? '🎵' : '🔕'; }
+function syncMus() { $('mus').textContent = Music.enabled ? '🎵' : '🔕'; }
 let toastTimer;
 function toast(msg) {
   const el = $('toast'); el.textContent = msg; el.classList.add('show');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 1400);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
 }
-['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => { Sfx.unlock(); Music.start(); }));
-// 🔊 = 모든 소리(효과음+음악), 🎵 = 배경음악만
+// 브라우저는 터치/클릭 뒤에야 소리를 허용한다. 폰은 손을 뗄 때(pointerup/touchend)에 허용되는 경우가 있어 모두 처리한다.
+function wakeAudio() { Sfx.unlock(); Music.start(); }
+['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'].forEach(ev => addEventListener(ev, wakeAudio, { passive: true }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) wakeAudio(); });
+setTimeout(() => { if (!Sfx.live() && !document.hidden) toast('소리가 안 나면 화면을 한 번 터치하세요'); }, 2500);
 $('snd').onclick = () => {
   Sfx.unlock(); Sfx.enabled = !Sfx.enabled;
   try { localStorage.setItem('marble.sound', Sfx.enabled ? '1' : '0'); } catch (e) { }
-  if (Sfx.enabled) { Music.start(); Sfx.tick(1); } else Music.stop();
-  syncSnd(); syncMus(); toast(Sfx.enabled ? '소리 켜짐' : '모든 소리 꺼짐');
+  if (Sfx.enabled) Sfx.tick(1);
+  syncSnd(); toast(Sfx.enabled ? '효과음 켜짐' : '효과음 꺼짐');
 };
 $('mus').onclick = () => {
   Sfx.unlock(); Music.enabled = !Music.enabled;
@@ -1244,7 +1276,7 @@ $('mus').onclick = () => {
   if (Music.enabled) Music.start(); else Music.stop();
   syncMus(); toast(Music.enabled ? '배경음악 켜짐' : '배경음악 꺼짐');
 };
-setInterval(() => { syncSnd(); syncMus(); }, 500);
+syncSnd(); syncMus();
 
 // 테스트/녹화 보조용
 window.__marble = { Sim, MAPS, makeMap, mulberry32, game, STEP, Sfx, Music };
