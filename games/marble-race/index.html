@@ -26,7 +26,7 @@
 </head>
 <body>
 <div id="stage"><canvas id="c"></canvas></div>
-<div id="ctrls"><button id="snd" title="소리">🔇</button><button id="gear" title="설정">⚙</button></div>
+<div id="ctrls"><button id="mus" title="배경음악">🎵</button><button id="snd" title="효과음">🔇</button><button id="gear" title="설정">⚙</button></div>
 <div id="panel">
   <label for="names">참가자 이름 (한 줄에 하나, 비우면 번호만 사용)</label>
   <textarea id="names" placeholder="민수&#10;지영&#10;..."></textarea>
@@ -36,7 +36,7 @@
     <button id="apply">적용 + 새 라운드</button>
     <button id="skip" class="sub">다음 라운드</button>
   </div>
-  <small>단축키: Space 다음 라운드<br>URL 옵션: ?names=a,b,c &amp; balls=12 &amp; seed=1 &amp; map=0~4 &amp; clean=1(설정 버튼 숨김)<br>소리: 화면을 한 번 터치하면 켜집니다. 우측 상단 🔊 버튼으로 끄고 켭니다.</small>
+  <small>단축키: Space 다음 라운드<br>URL 옵션: ?names=a,b,c &amp; balls=12 &amp; seed=1 &amp; map=0~4 &amp; clean=1(설정 버튼 숨김)<br>소리: 화면을 한 번 터치하면 효과음과 배경음악이 켜집니다. 우측 상단 🎵(음악), 🔊(효과음) 버튼으로 각각 끄고 켭니다.</small>
 </div>
 
 <script>
@@ -48,6 +48,7 @@
  * ============================================================ */
 
 const W = 1080, VIEW_H = 1920;
+const RUBBER = 0.22;
 const G = 900, VMAX = 400, DRAG = 0.12, STEP = 1 / 240;
 const COUNT_T = 3, RACE_CAP = 49, RESULT_T = 8;
 const ANIMALS = ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐤','🦄','🐴','🐗','🐺','🐲','🦉','🐙','🐳','🐬','🐢','🐥','🦝'];
@@ -68,7 +69,7 @@ function baseMap(name, H, bg, accent) {
 }
 
 function mapPlinko(rng) {
-  const m = baseMap('페그 폭포', 10600, ['#1d2b64', '#f8cdda'], '#ffd166');
+  const m = baseMap('페그 폭포', 8800, ['#1d2b64', '#f8cdda'], '#ffd166');
   let row = 0;
   for (let y = 520; y < m.H - 700; y += 150, row++) {
     for (let x = row % 2 ? 170 : 100; x < W - 90; x += 140) {
@@ -79,7 +80,7 @@ function mapPlinko(rng) {
 }
 
 function mapSpinners(rng) {
-  const m = baseMap('회전 막대', 11000, ['#2b1055', '#7597de'], '#ff9f68');
+  const m = baseMap('회전 막대', 6800, ['#2b1055', '#7597de'], '#ff9f68');
   let row = 0;
   for (let y = 560; y < m.H - 800; y += 520, row++) {
     for (const fx of [.27, .5, .73]) {
@@ -96,7 +97,8 @@ function mapSpinners(rng) {
 }
 
 function mapBumpers(rng) {
-  const m = baseMap('범퍼 지옥', 12000, ['#42275a', '#734b6d'], '#ff6bd6');
+  const m = baseMap('범퍼 지옥', 7500, ['#42275a', '#734b6d'], '#ff6bd6');
+  m.noSprinkle = true;
   const pts = [];
   for (let i = 0; i < 12000 && pts.length < 260; i++) {
     const bump = rng() < .28;
@@ -109,7 +111,7 @@ function mapBumpers(rng) {
 }
 
 function mapFunnels(rng) {
-  const m = baseMap('깔때기 병목', 11800, ['#134e5e', '#71b280'], '#ffe66d');
+  const m = baseMap('깔때기 병목', 7800, ['#134e5e', '#71b280'], '#ffe66d');
   let y = 520;
   while (y < m.H - 1100) {
     const gx = 280 + rng() * 520;
@@ -126,7 +128,7 @@ function mapFunnels(rng) {
 }
 
 function mapPortal(rng) {
-  const m = baseMap('포탈 월드', 17500, ['#1a0b3b', '#4a2a8a'], '#7df9ff');
+  const m = baseMap('포탈 월드', 10200, ['#1a0b3b', '#4a2a8a'], '#7df9ff');
   let row = 0;
   for (let y = 520; y < m.H - 700; y += 190, row++) {
     for (let x = row % 2 ? 170 : 90; x < W - 70; x += 160) {
@@ -165,21 +167,151 @@ function addFins(m, rng) {
       ? { x1: W, y1: y, x2: W - len, y2: y + drop, r: 8 }
       : { x1: 0, y1: y, x2: len, y2: y + drop, r: 8 });
   }
-  const dist = (p, s) => {
-    const ex = s.x2 - s.x1, ey = s.y2 - s.y1;
-    let t = ((p.x - s.x1) * ex + (p.y - s.y1) * ey) / (ex * ex + ey * ey);
-    t = Math.max(0, Math.min(1, t));
-    return Math.hypot(p.x - (s.x1 + t * ex), p.y - (s.y1 + t * ey));
-  };
-  const free = p => segs.every(sg => dist(p, sg) > p.r + 62);
+  const free = p => segs.every(sg => segDist(p.x, p.y, sg) > p.r + 62);
   m.pegs = m.pegs.filter(free); m.bumpers = m.bumpers.filter(free);
   m.segs.push(...segs);
   return m;
 }
 const FINS = new Set([mapPlinko, mapPortal, mapSpinners, mapBumpers]);
+function segDist(px, py, s) {
+  const ex = s.x2 - s.x1, ey = s.y2 - s.y1;
+  let t = ((px - s.x1) * ex + (py - s.y1) * ey) / (ex * ex + ey * ey);
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (s.x1 + t * ex), py - (s.y1 + t * ey));
+}
+
+/* 게이트·슬라이더 같은 장치를 놓을 수 있는, 다른 구조물과 겹치지 않는 y를 찾는다 */
+function pickClearY(m, y) {
+  const bad = yy =>
+    m.segs.some(s => Math.abs(s.x2 - s.x1) > 200 && Math.max(s.y1, s.y2) > yy - 100 && Math.min(s.y1, s.y2) < yy + 100) ||
+    m.spinners.some(s => Math.abs(s.cy - yy) < s.L + 100) ||
+    (m.gates || []).some(g => Math.abs(g.y - yy) < 260) ||
+    (m.sliders || []).some(g => Math.abs(g.cy - yy) < 260) ||
+    m.portals.some(p => Math.abs(p.y - yy) < 140);
+  for (let d = 0; d <= 900; d += 40) {
+    if (!bad(y + d)) return y + d;
+    if (!bad(y - d)) return y - d;
+  }
+  return y;
+}
+function clearBand(m, y, h) {
+  m.pegs = m.pegs.filter(p => Math.abs(p.y - y) > h + p.r);
+  m.bumpers = m.bumpers.filter(p => Math.abs(p.y - y) > h + p.r);
+}
+function addPortal(m, rng, py, jump, hue) {
+  const x = 300 + rng() * 480;
+  const ty = Math.max(620, Math.min(m.finishY - 450, py + jump));
+  const p = { x, y: py, r: 48, tx: 160 + rng() * 760, ty, hue };
+  m.portals.push(p);
+  for (const [qx, qy] of [[p.x, p.y], [p.tx, p.ty]]) m.pegs = m.pegs.filter(q => Math.hypot(q.x - qx, q.y - qy) > 100);
+}
+
+/* 끝까지 예측 불가: 셔터(떼로 멈췄다 풀림), 좌우로 움직이는 막대, 뒤로 보내는 함정 포탈과 앞으로 보내는 행운 포탈 */
+function addTwists(m, rng) {
+  const Fy = m.finishY;
+  m.gates = []; m.sliders = [];
+  const portalsBefore = m.portals.length;
+  for (const [y0, closed, period] of [[Fy * .45, 1.8, 3.4], [Fy * .72, 1.8, 3.4]]) {
+    const y = pickClearY(m, y0);
+    clearBand(m, y, 60);
+    m.gates.push({ y, r: 9, closed, period: period + rng() * .4, phase: rng() * 3.8 });
+  }
+  // 결승 직전 셔터: 선두가 먼저 도착해도 뒤따르는 공들이 모일 때까지 닫혀 있다가 한꺼번에 열린다 (격차 리셋)
+  { const y = pickClearY(m, Fy - 560); clearBand(m, y, 60); m.gates.push({ y, r: 9, final: true, closed: 1, period: 2, phase: 0 }); }
+  for (const off of [2300, 1700, 1100]) {
+    const y = pickClearY(m, Fy - off);
+    clearBand(m, y, 80);
+    m.sliders.push({ cy: y, cx: W / 2, L: 110, r: 10, A: 290, w: 1.0 + rng() * .8, ph: rng() * 6.28 });
+  }
+  addPortal(m, rng, pickClearY(m, Fy * .38), 1500, 130);     // 행운(앞으로)
+  addPortal(m, rng, pickClearY(m, Fy * .62), 1000, 130);
+  addPortal(m, rng, pickClearY(m, Fy * .79), -1500, 0);      // 함정(뒤로)
+  addPortal(m, rng, pickClearY(m, Fy * .87), -1300, 0);
+  m.twistPortals = m.portals.length - portalsBefore;
+}
+
+/* 핀볼처럼 강하게 튕겨내는 범퍼를 군데군데 */
+function addBumpers(m, rng) {
+  const Fy = m.finishY, want = Math.round((Fy - 1300) / 650);
+  let placed = 0;
+  for (let i = 0; i < 900 && placed < want; i++) {
+    const x = 140 + rng() * (W - 280), y = 720 + rng() * (Fy - 1300);
+    const near = o => Math.hypot(o.x - x, o.y - y) < 120;
+    if (m.pegs.some(near) || m.bumpers.some(near)) continue;
+    if (m.segs.some(sg => segDist(x, y, sg) < 110)) continue;
+    if (m.spinners.some(sp => Math.hypot(sp.cx - x, sp.cy - y) < sp.L + 100)) continue;
+    if (m.gates.some(g => Math.abs(g.y - y) < 130) || m.sliders.some(g => Math.abs(g.cy - y) < 170)) continue;
+    if (m.portals.some(pt => Math.hypot(pt.x - x, pt.y - y) < 130 || Math.hypot(pt.tx - x, pt.ty - y) < 130)) continue;
+    m.bumpers.push({ x, y, r: 34 }); placed++;
+  }
+}
+
+/* 일직선으로 쭉 떨어지는 구간이 없도록, 공 폭 기준으로 장애물이 없는 세로 구간(maxGap 초과)에 핀을 채운다 */
+function fillGaps(m, rng, maxGap = 300) {
+  const BIN = 24, NB = Math.ceil(W / BIN), BR = 24;
+  const cov = Array.from({ length: NB }, () => []);
+  const add = (x, y, rx, ry) => {
+    for (let b = Math.max(0, Math.floor((x - rx) / BIN)); b <= Math.min(NB - 1, Math.floor((x + rx) / BIN)); b++) {
+      const cx = (b + .5) * BIN;
+      if (Math.abs(cx - x) <= rx) cov[b].push([y - ry, y + ry]);
+    }
+  };
+  for (const p of m.pegs) add(p.x, p.y, p.r + BR, p.r + BR);
+  for (const p of m.bumpers) add(p.x, p.y, p.r + BR, p.r + BR);
+  for (const sg of m.segs) {
+    const len = Math.hypot(sg.x2 - sg.x1, sg.y2 - sg.y1), n = Math.max(1, Math.ceil(len / 18));
+    for (let i = 0; i <= n; i++) add(sg.x1 + (sg.x2 - sg.x1) * i / n, sg.y1 + (sg.y2 - sg.y1) * i / n, sg.r + BR, sg.r + BR);
+  }
+  for (const sp of m.spinners) add(sp.cx, sp.cy, sp.r + BR + 36, sp.r + BR + 36);   // 회전 막대는 허브 부분만 확실한 장애물로 본다
+  for (const g of m.gates) add(W / 2, g.y, W, g.r + BR);
+  for (const g of m.sliders) add(W / 2, g.cy, 170, g.r + BR);
+  for (const pt of m.portals) add(pt.x, pt.y, pt.r + BR, pt.r + BR);
+
+  const y0 = 400, y1 = m.finishY - 120;
+  for (let pass = 0; pass < 12; pass++) {
+    let changed = false;
+    for (let b = 1; b < NB - 1; b++) {
+      const cx = (b + .5) * BIN;
+      if (cx < 30 || cx > W - 30) continue;
+      const iv = cov[b].slice().sort((a, c) => a[0] - c[0]);
+      let cur = y0, gapA = -1, gapB = -1;
+      for (const [a, c] of iv) {
+        if (a > cur && a - cur > gapB - gapA) { gapA = cur; gapB = a; }
+        if (c > cur) cur = c;
+      }
+      if (y1 > cur && y1 - cur > gapB - gapA) { gapA = cur; gapB = y1; }
+      if (gapB - gapA <= maxGap) continue;
+      const bump = rng() < .22;
+      const r = bump ? 34 : 14;
+      // 빈 구간 안에서 겹치지 않는 자리를 여러 곳 시도
+      const span = Math.min(gapB - gapA, maxGap * 1.6);
+      let placed = null;
+      for (let k = 0; k < 14 && !placed; k++) {
+        const fr = [.5, .4, .6, .3, .7, .2, .8][k % 7];
+        const x = Math.max(100, Math.min(W - 100, cx + (rng() - .5) * (k < 7 ? 30 : 90)));
+        const y = gapA + 40 + (span - 80) * fr;
+        const mg = 54;
+        const clash = o => Math.hypot(o.x - x, o.y - y) < o.r + r + mg;
+        if (m.pegs.some(clash) || m.bumpers.some(clash) || m.segs.some(sg => segDist(x, y, sg) < r + mg + 4)) continue;
+        placed = { x, y, r };
+      }
+      if (!placed) continue;
+      (bump ? m.bumpers : m.pegs).push(placed);
+      add(placed.x, placed.y, r + BR, r + BR);
+      changed = true;
+    }
+    if (!changed) break;
+  }
+}
+
 function makeMap(idx, seed) {
   const mk = MAPS[idx], rng = mulberry32(seed);
-  return FINS.has(mk) ? addFins(mk(rng), rng) : mk(rng);
+  const m = mk(rng);
+  if (FINS.has(mk)) addFins(m, rng);
+  addTwists(m, rng);
+  if (!m.noSprinkle) addBumpers(m, rng);
+  fillGaps(m, rng);
+  return m;
 }
 
 /* ---------------- 물리 시뮬레이션 ---------------- */
@@ -190,6 +322,10 @@ class Sim {
     this.t = 0;
     this.finCount = 0;
     this.onHit = null; this.onFinish = null;
+    this.gustDir = 0; this.gusts = []; this.medY = 0;
+    this.pops = []; this.nextPop = 6 + this.rng() * 2; this.popToast = -99;
+    for (let tt = 7 + this.rng() * 4; tt < RACE_CAP; tt += 7 + this.rng() * 5) this.gusts.push({ t0: tt, dur: 1.2, dir: this.rng() < .5 ? -1 : 1 });
+    for (const sl of map.sliders || []) sl.x = sl.cx + sl.A * Math.sin(sl.ph);
     const n = names.length;
     const r = n > 20 ? 19 : 24;
     const order = names.map((_, i) => i);
@@ -220,7 +356,7 @@ class Sim {
   hitCircle(b, cx, cy, cr, e, vox, voy, kick, kind) {
     const dx = b.x - cx, dy = b.y - cy, rr = b.r + cr;
     const d2 = dx * dx + dy * dy;
-    if (d2 >= rr * rr) return;
+    if (d2 >= rr * rr) return false;
     const d = Math.sqrt(d2) || 1e-4, nx = dx / d, ny = dy / d;
     b.x = cx + nx * rr; b.y = cy + ny * rr;
     const vn = (b.vx - vox) * nx + (b.vy - voy) * ny;
@@ -230,7 +366,9 @@ class Sim {
       b.vx -= (1 + e) * vn * nx; b.vy -= (1 + e) * vn * ny;
       if (kick) { b.vx += nx * kick; b.vy += ny * kick; }
       b.vx += (this.rng() - .5) * 10;
+      return true;
     }
+    return false;
   }
 
   hitSeg(b, x1, y1, x2, y2, cr, e, omega, cx, cy, kind) {
@@ -239,19 +377,65 @@ class Sim {
     t = t < 0 ? 0 : t > 1 ? 1 : t;
     const px = x1 + t * ex, py = y1 + t * ey;
     const vox = omega ? -omega * (py - cy) : 0, voy = omega ? omega * (px - cx) : 0;
-    this.hitCircle(b, px, py, cr, e, vox, voy, 0, kind);
+    return this.hitCircle(b, px, py, cr, e, vox, voy, 0, kind);
+  }
+
+  hitSegV(b, x1, y1, x2, y2, cr, e, vox, voy, kind) {
+    const ex = x2 - x1, ey = y2 - y1;
+    let t = ((b.x - x1) * ex + (b.y - y1) * ey) / (ex * ex + ey * ey);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return this.hitCircle(b, x1 + t * ex, y1 + t * ey, cr, e, vox, voy, 0, kind);
   }
 
   step(dt) {
     this.t += dt;
     const m = this.map, balls = this.balls;
     for (const s of m.spinners) s.a = s.phase + s.speed * this.t;
+    for (const sl of m.sliders) { sl.x = sl.cx + sl.A * Math.sin(sl.w * this.t + sl.ph); sl.vx = sl.A * sl.w * Math.cos(sl.w * this.t + sl.ph); }
+    for (const p of m.bumpers) if (p.flash > 0) p.flash -= dt;
+    for (const q of this.pops) if (q.flash > 0) q.flash -= dt;
+    for (const g of m.gates) {
+      let open;
+      if (g.final) {
+        if (!g.opened) {
+          const arrived = balls.filter(b => b.y > g.y - 170).length;
+          if (arrived > 0 && g.t1 === undefined) g.t1 = this.t;
+          if (arrived >= Math.ceil(balls.length * .6) || (g.t1 !== undefined && this.t - g.t1 > 6.5) || this.t > RACE_CAP - 9) g.opened = true;
+        }
+        open = !!g.opened;
+      } else open = ((this.t + g.phase) % g.period) >= g.closed;
+      if (g.open !== undefined && open !== g.open && this.onHit) this.onHit(open ? 'gateOpen' : 'gateClose', 0, { y: g.y });
+      g.open = open;
+    }
+    const gu = this.gusts.find(q => this.t >= q.t0 && this.t < q.t0 + q.dur);
+    const gd = gu ? gu.dir : 0;
+    if (gd && !this.gustDir && this.onHit) this.onHit('gust', 0, { y: -1e9, any: true });
+    this.gustDir = gd;
+    // 돌발 장애물: 선두 바로 앞에 경고 후 강한 범퍼가 잠시 나타난다
+    if (this.t >= this.nextPop) {
+      this.nextPop = this.t + 5 + this.rng() * 2.5;
+      const lead = balls.filter(b => !b.finished && b.y > 500 && b.y < m.finishY - 800).sort((a, c) => c.y - a.y)[0];
+      if (lead) {
+        const px = Math.max(150, Math.min(W - 150, lead.x + (this.rng() - .5) * 140));
+        this.pops.push({ x: px, y: lead.y + 440, r: 46, t0: this.t, warn: .7, life: 3.6 });
+        this.popToast = this.t;
+        if (this.onHit) this.onHit('pop', 0, { y: lead.y + 440 });
+      }
+    }
+    this.pops = this.pops.filter(q => this.t < q.t0 + q.life);
+    // 추격 보정: 앞선 공은 조금 느려지고 뒤처진 공은 조금 빨라져 끝까지 순위가 뒤집힐 수 있게 한다
+    if ((this.stepN = (this.stepN || 0) + 1) % 12 === 1) {
+      const ys = balls.filter(b => !b.finished).map(b => b.y).sort((a, c) => a - c);
+      this.medY = ys.length ? ys[ys.length >> 1] : 0;
+    }
 
     for (const b of balls) {
-      b.vy += G * dt;
+      const rb = b.finished ? 1 : 1 + RUBBER * Math.max(-1, Math.min(1, (this.medY - b.y) / 700));
+      b.vy += G * rb * dt;
+      if (gd && !b.finished) b.vx += gd * 750 * dt;
       const k = 1 - DRAG * dt; b.vx *= k; b.vy *= k;
-      const sp = Math.hypot(b.vx, b.vy);
-      if (sp > VMAX) { b.vx *= VMAX / sp; b.vy *= VMAX / sp; }
+      const sp = Math.hypot(b.vx, b.vy), cap = VMAX * rb;
+      if (sp > cap) { const f = Math.max(cap / sp, 1 - 3 * dt); b.vx *= f; b.vy *= f; }
       b.x += b.vx * dt; b.y += b.vy * dt;
 
       if (b.x < b.r) { b.x = b.r; if (b.vx < 0) b.vx *= -.4; }
@@ -272,7 +456,7 @@ class Sim {
 
       const lo = b.y - b.r - 60, hi = b.y + b.r + 60;
       for (const p of m.pegs) if (p.y > lo && p.y < hi) this.hitCircle(b, p.x, p.y, p.r, .55, 0, 0, 0, 'peg');
-      for (const p of m.bumpers) if (p.y > lo - 30 && p.y < hi + 30) this.hitCircle(b, p.x, p.y, p.r, 1.0, 0, 0, 160, 'bumper');
+      for (const p of m.bumpers) if (p.y > lo - 30 && p.y < hi + 30 && this.hitCircle(b, p.x, p.y, p.r, 1.15, 0, 0, 330, 'bumper')) p.flash = .22;
       for (const s of m.segs) {
         if (Math.max(s.y1, s.y2) < lo || Math.min(s.y1, s.y2) > hi) continue;
         this.hitSeg(b, s.x1, s.y1, s.x2, s.y2, s.r, .3, 0, 0, 0, 'seg');
@@ -283,10 +467,21 @@ class Sim {
         this.hitSeg(b, s.cx - c, s.cy - sn, s.cx + c, s.cy + sn, s.r, .6, s.speed, s.cx, s.cy, 'spin');
       }
 
+      for (const q of this.pops) {
+        if (this.t >= q.t0 + q.warn && Math.abs(q.y - b.y) < q.r + b.r + 30 && this.hitCircle(b, q.x, q.y, q.r, 1.2, 0, 0, 380, 'bumper')) q.flash = .25;
+      }
+      for (const sl of m.sliders) {
+        if (Math.abs(sl.cy - b.y) > sl.r + b.r + 30) continue;
+        this.hitSegV(b, sl.x - sl.L, sl.cy, sl.x + sl.L, sl.cy, sl.r, .7, sl.vx, 0, 'spin');
+      }
+      for (const g of m.gates) {
+        if (!g.open && Math.abs(g.y - b.y) < g.r + b.r + 30) this.hitSeg(b, 0, g.y, W, g.y, g.r, .2, 0, 0, 0, 'seg');
+      }
+
       if (!b.finished) {
         if (b.y > m.finishY) { b.finished = true; b.rank = ++this.finCount; b.time = this.t; if (this.onFinish) this.onFinish(b); }
         else if (b.y > b.best + 40) { b.best = b.y; b.bestT = this.t; }
-        else if (this.t - b.bestT > 1.8) {   // 끼임 방지
+        else if (this.t - b.bestT > 1.8 && !m.gates.some(g => !g.open && g.y > b.y && g.y - b.y < 90)) {   // 끼임 방지 (닫힌 셔터 위는 제외)
           b.vx += (this.rng() - .5) * 500; b.vy -= 250; b.bestT = this.t;
         }
       }
@@ -342,7 +537,8 @@ const Sfx = {
         this.ctx = new AC();
         const comp = this.ctx.createDynamicsCompressor();
         this.master = this.ctx.createGain(); this.master.gain.value = .8;
-        this.master.connect(comp); comp.connect(this.ctx.destination);
+        this.musicBus = this.ctx.createGain(); this.musicBus.gain.value = .55;
+        this.master.connect(comp); this.musicBus.connect(comp); comp.connect(this.ctx.destination);
       }
       if (this.ctx.state === 'suspended') this.ctx.resume();
     } catch (e) { /* 오디오를 쓸 수 없는 환경 */ }
@@ -353,8 +549,8 @@ const Sfx = {
     if (n - (this.last[kind] || 0) < gap) return false;
     this.last[kind] = n; return true;
   },
-  tone(f, dur, type, vol, f2, delay) {
-    if (!this.on) return;
+  tone(f, dur, type, vol, f2, delay, bus) {
+    if (!this.ctx || this.ctx.state !== 'running' || (!bus && !this.enabled)) return;
     const c = this.ctx, t = c.currentTime + (delay || 0);
     const o = c.createOscillator(), g = c.createGain();
     o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
@@ -362,10 +558,10 @@ const Sfx = {
     g.gain.setValueAtTime(.0001, t);
     g.gain.exponentialRampToValueAtTime(vol, t + .006);
     g.gain.exponentialRampToValueAtTime(.0001, t + dur);
-    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + dur + .03);
+    o.connect(g); g.connect(bus || this.master); o.start(t); o.stop(t + dur + .03);
   },
-  noise(dur, vol, f1, f2, delay) {
-    if (!this.on) return;
+  noise(dur, vol, f1, f2, delay, bus) {
+    if (!this.ctx || this.ctx.state !== 'running' || (!bus && !this.enabled)) return;
     const c = this.ctx, t = c.currentTime + (delay || 0);
     const buf = c.createBuffer(1, Math.ceil(c.sampleRate * dur), c.sampleRate), d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -375,7 +571,7 @@ const Sfx = {
     const g = c.createGain();
     g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * .25);
     g.gain.exponentialRampToValueAtTime(.0001, t + dur);
-    src.connect(fl); fl.connect(g); g.connect(this.master); src.start(t);
+    src.connect(fl); fl.connect(g); g.connect(bus || this.master); src.start(t);
   },
   peg(v) { if (this.gate('peg', 40)) this.tone(PENTA[(Math.random() * PENTA.length) | 0] * (Math.random() < .3 ? .5 : 1), .09, 'sine', .05 + .1 * v); },
   ball(v) { if (this.gate('ball', 70)) this.tone(260 + Math.random() * 80, .06, 'triangle', .05 + .09 * v, 140); },
@@ -383,11 +579,55 @@ const Sfx = {
   spin(v) { if (this.gate('spin', 60)) this.tone(420, .05, 'square', .03 + .05 * v, 300); },
   bumper(v) { if (this.gate('bumper', 90)) this.tone(260, .16, 'sine', .12 + .1 * v, 720); },
   portal() { this.noise(.45, .25, 300, 2400); this.tone(500, .3, 'sine', .08, 1500); },
+  pop() { this.tone(880, .12, 'square', .12, 440); this.tone(880, .12, 'square', .12, 440, .16); },
+  gateClose() { this.tone(110, .18, 'triangle', .2, 60); },
+  gateOpen() { this.tone(220, .14, 'triangle', .14, 520); },
+  gust() { this.noise(1.0, .22, 300, 1500); },
   tick(n) { this.tone(n > 0 ? 660 : 990, n > 0 ? .12 : .35, 'sine', .22); },
   whoosh() { this.noise(.5, .18, 200, 1800); },
   finish(rank) { this.tone(Math.max(500, 920 - rank * 28), .22, 'triangle', .16); },
   fanfare() { [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, .28, 'triangle', .2, 0, i * .09)); this.tone(262, .9, 'sine', .12, 0, .3); },
   hit(kind, speed) { const v = Math.min(1, speed / 450); (this[kind] || (() => { })).call(this, v); }
+};
+
+/* ---------------- 배경음악 (직접 작곡한 8마디 루프, 합성음) ---------------- */
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+const Music = {
+  enabled: true, timer: null, step: 0, next: 0, bpm: 128,
+  chords: [[48, 52, 55], [45, 48, 52], [41, 45, 48], [43, 47, 50], [48, 52, 55], [45, 48, 52], [41, 45, 48], [43, 47, 50]],
+  lead: [
+    [[0, 76, 2], [2, 79, 2], [4, 84, 4], [8, 83, 2], [10, 79, 2], [12, 76, 4]],
+    [[0, 76, 2], [2, 81, 2], [4, 84, 4], [8, 81, 2], [10, 76, 2], [12, 72, 4]],
+    [[0, 77, 2], [2, 81, 2], [4, 84, 4], [8, 81, 2], [10, 77, 2], [12, 81, 4]],
+    [[0, 79, 2], [2, 83, 2], [4, 86, 4], [8, 83, 2], [10, 79, 2], [12, 74, 4]],
+    [[0, 84, 3], [3, 84, 1], [4, 79, 4], [8, 76, 2], [10, 79, 2], [12, 84, 4]],
+    [[0, 81, 3], [3, 81, 1], [4, 76, 4], [8, 72, 2], [10, 76, 2], [12, 81, 4]],
+    [[0, 81, 2], [2, 84, 2], [4, 89, 4], [8, 84, 2], [10, 81, 2], [12, 77, 4]],
+    [[0, 83, 2], [2, 86, 2], [4, 83, 2], [6, 79, 2], [8, 74, 4], [12, 79, 2], [14, 83, 2]]
+  ],
+  get running() { return !!(this.timer && Sfx.ctx && Sfx.ctx.state === 'running'); },
+  start() {
+    if (this.timer || !this.enabled || !Sfx.ctx) return;
+    this.next = Sfx.ctx.currentTime + .08; this.step = 0;
+    this.timer = setInterval(() => this.pump(), 30);
+  },
+  stop() { clearInterval(this.timer); this.timer = null; },
+  pump() {
+    const c = Sfx.ctx; if (!c || c.state !== 'running') return;
+    const dur = 60 / this.bpm / 4;
+    if (this.next < c.currentTime - .3) this.next = c.currentTime + .05;   // 탭이 멈췄다 돌아온 경우
+    while (this.next < c.currentTime + .15) { this.play(this.step, this.next, dur); this.next += dur; this.step++; }
+  },
+  play(n, t, d) {
+    const c = Sfx.ctx, bus = Sfx.musicBus, st = n % 16, bar = Math.floor(n / 16) % 8, delay = Math.max(0, t - c.currentTime);
+    const ch = this.chords[bar];
+    if (st % 4 === 0) Sfx.tone(160, .14, 'sine', .42, 42, delay, bus);                           // 킥
+    if (st === 4 || st === 12) Sfx.noise(.12, .16, 2200, 1200, delay, bus);                      // 스네어
+    if (st % 2 === 0) Sfx.noise(.04, st % 4 === 2 ? .07 : .04, 7000, 9000, delay, bus);         // 하이햇
+    if (st % 4 === 0 || st % 4 === 3) Sfx.tone(mtof(ch[0]), d * 1.7, 'sawtooth', .13, 0, delay, bus);   // 베이스
+    Sfx.tone(mtof(ch[[0, 1, 2, 1][st % 4]] + 24), d * .9, 'triangle', .06, 0, delay, bus);       // 아르페지오
+    for (const [at, note, len] of this.lead[bar]) if (at === st) Sfx.tone(mtof(note), d * len * .95, 'square', .05, 0, delay, bus);
+  }
 };
 
 /* ---------------- 게임 흐름 ---------------- */
@@ -427,7 +667,7 @@ class Game {
     const map = makeMap(idx, seed);
     this.sim = new Sim(map, this.participants().map(p => p.name), seed);
     this.sim.onHit = (kind, speed, b) => {
-      if (b.y < this.cam - 120 || b.y > this.cam + VIEW_H + 120) return;   // 화면 밖 소리는 내지 않음
+      if (!b.any && (b.y < this.cam - 120 || b.y > this.cam + VIEW_H + 120)) return;   // 화면 밖 소리는 내지 않음
       Sfx.hit(kind, speed);
     };
     this.sim.onFinish = b => { if (b.rank === 1) Sfx.fanfare(); else Sfx.finish(b.rank); };
@@ -591,8 +831,13 @@ function drawWorld(game) {
   }
   for (const p of m.bumpers) {
     if (p.y < top || p.y > bot) continue;
-    ctx.fillStyle = m.accent; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * .45, 0, 7); ctx.fill();
+    const f = p.flash > 0 ? p.flash / .22 : 0, rr = p.r * (1 + f * .25);
+    const g = ctx.createRadialGradient(p.x, p.y, rr * .2, p.x, p.y, rr + 22);
+    g.addColorStop(0, `rgba(255,255,255,${.25 + f * .5})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, rr + 22, 0, 7); ctx.fill();
+    ctx.fillStyle = f > 0 ? '#fff' : m.accent; ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, 7); ctx.stroke();
+    ctx.fillStyle = f > 0 ? m.accent : 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(p.x, p.y, rr * .45, 0, 7); ctx.fill();
   }
   ctx.lineCap = 'round';
   ctx.strokeStyle = m.accent;
@@ -606,6 +851,48 @@ function drawWorld(game) {
     ctx.strokeStyle = m.accent; ctx.lineWidth = s.r * 2;
     ctx.beginPath(); ctx.moveTo(s.cx - c, s.cy - sn); ctx.lineTo(s.cx + c, s.cy + sn); ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(s.cx, s.cy, 9, 0, 7); ctx.fill();
+  }
+  for (const sl of m.sliders) {
+    if (sl.cy < top - 40 || sl.cy > bot + 40) continue;
+    ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 4; ctx.setLineDash([14, 14]);
+    ctx.beginPath(); ctx.moveTo(sl.cx - sl.A - sl.L, sl.cy); ctx.lineTo(sl.cx + sl.A + sl.L, sl.cy); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = '#ff7a59'; ctx.lineWidth = sl.r * 2;
+    ctx.beginPath(); ctx.moveTo(sl.x - sl.L, sl.cy); ctx.lineTo(sl.x + sl.L, sl.cy); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sl.x, sl.cy, 7, 0, 7); ctx.fill();
+  }
+  const simT = sim.t;
+  for (const g of m.gates) {
+    if (g.y < top - 40 || g.y > bot + 40) continue;
+    ctx.lineCap = 'butt';
+    if (g.open) {
+      ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 6; ctx.setLineDash([22, 18]);
+      ctx.beginPath(); ctx.moveTo(0, g.y); ctx.lineTo(W, g.y); ctx.stroke(); ctx.setLineDash([]);
+    } else {
+      const pt = g.final ? 0 : (simT + g.phase) % g.period, soon = !g.final && g.closed - pt < .5 && Math.floor(pt * 8) % 2 === 0;
+      ctx.strokeStyle = soon ? '#ffd166' : '#ff4d4d'; ctx.lineWidth = g.r * 2;
+      ctx.beginPath(); ctx.moveTo(0, g.y); ctx.lineTo(W, g.y); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 5; ctx.setLineDash([26, 26]); ctx.lineDashOffset = 0;
+      ctx.beginPath(); ctx.moveTo(0, g.y); ctx.lineTo(W, g.y); ctx.stroke(); ctx.setLineDash([]);
+      if (g.final) text('FINAL GATE', W / 2, g.y - 34, 38, '#ffd166');
+    }
+    ctx.lineCap = 'round';
+  }
+  for (const q of sim.pops) {
+    if (q.y < top - 80 || q.y > bot + 80) continue;
+    const age = simT - q.t0;
+    if (age < q.warn) {
+      const on = Math.floor(age * 10) % 2 === 0;
+      ctx.strokeStyle = on ? '#ff4d4d' : 'rgba(255,255,255,.7)'; ctx.lineWidth = 8; ctx.setLineDash([16, 12]);
+      ctx.beginPath(); ctx.arc(q.x, q.y, q.r + 8, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      text('!', q.x, q.y + 2, 64, '#ff4d4d');
+    } else {
+      const f = q.flash > 0 ? q.flash / .25 : 0, rr = q.r * (1 + f * .2), fade = Math.min(1, (q.life - age) * 2);
+      ctx.save(); ctx.globalAlpha = fade;
+      ctx.fillStyle = '#2b2b2b'; ctx.beginPath(); ctx.arc(q.x, q.y, rr, 0, 7); ctx.fill();
+      ctx.strokeStyle = f > 0 ? '#fff' : '#ff4d4d'; ctx.lineWidth = 8; ctx.stroke();
+      animal('💣', q.x, q.y + 2, rr * 1.3);
+      ctx.restore();
+    }
   }
 
   // 공 (동물 얼굴)
@@ -674,6 +961,22 @@ function drawHUD(game) {
   // 하단 안내
   ctx.fillStyle = 'rgba(0,0,0,.5)'; rrect(60, VIEW_H - 190, W - 120, 120, 36); ctx.fill();
   text('응원할 공 번호를 댓글로 남겨보세요!', W / 2, VIEW_H - 130, 46, '#fff');
+
+  // 돌풍 / 돌발 장애물 안내
+  if (sim.gustDir && game.phase === 'race') {
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    const tt = performance.now() / 1000;
+    for (let i = 0; i < 14; i++) {
+      const y = 260 + ((i * 197) % 1400), len = 120 + (i % 3) * 60;
+      let x = ((tt * 1500 * sim.gustDir + i * 311) % (W + 300) + (W + 300)) % (W + 300) - 150;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + len * sim.gustDir, y); ctx.stroke();
+    }
+    ctx.restore();
+    text(sim.gustDir > 0 ? '돌풍! →' : '← 돌풍!', W / 2, 340, 72, '#bff3ff');
+  }
+  if (game.phase === 'race' && sim.t - sim.popToast < 1.8) {
+    text('돌발 장애물 출현!', W / 2, sim.gustDir ? 430 : 340, 60, '#ff7a59');
+  }
 
   // 카운트다운
   if (game.phase === 'count') {
@@ -756,7 +1059,17 @@ function wakeGear() {
 // 소리: 브라우저 정책상 첫 터치 이후에 켜짐. 🔊/🔇 버튼으로 끄고 켤 수 있음
 try { Sfx.enabled = localStorage.getItem('marble.sound') !== '0'; } catch (e) { }
 function syncSnd() { $('snd').textContent = Sfx.enabled && Sfx.on ? '🔊' : '🔇'; }
-['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => { Sfx.unlock(); setTimeout(syncSnd, 100); }));
+try { Music.enabled = localStorage.getItem('marble.music') !== '0'; } catch (e) { }
+function syncMus() { $('mus').textContent = Music.enabled && Music.running ? '🎵' : '🔕'; }
+['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => {
+  Sfx.unlock(); Music.start(); setTimeout(() => { syncSnd(); syncMus(); }, 150);
+}));
+$('mus').onclick = () => {
+  Sfx.unlock(); Music.enabled = !Music.enabled;
+  try { localStorage.setItem('marble.music', Music.enabled ? '1' : '0'); } catch (e) { }
+  if (Music.enabled) Music.start(); else Music.stop();
+  setTimeout(syncMus, 150);
+};
 $('snd').onclick = () => {
   Sfx.unlock(); Sfx.enabled = !Sfx.enabled;
   try { localStorage.setItem('marble.sound', Sfx.enabled ? '1' : '0'); } catch (e) { }
@@ -774,7 +1087,7 @@ $('skip').onclick = () => game.skip();
 addEventListener('keydown', e => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); game.skip(); } });
 
 // 테스트/녹화 보조용
-window.__marble = { Sim, MAPS, makeMap, mulberry32, game, STEP, Sfx };
+window.__marble = { Sim, MAPS, makeMap, mulberry32, game, STEP, Sfx, Music };
 </script>
 </body>
 </html>
