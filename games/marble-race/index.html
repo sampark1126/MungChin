@@ -12,6 +12,9 @@
   #ctrls.idle{opacity:0}
   #ctrls button{width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:#fff;font-size:20px;cursor:pointer}
   #ctrls button:hover{background:rgba(255,255,255,.35)}
+  #toast{position:fixed;left:50%;bottom:calc(14% + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);background:rgba(0,0,0,.78);color:#fff;padding:10px 18px;border-radius:20px;font-size:15px;z-index:6;opacity:0;pointer-events:none;transition:opacity .25s}
+  #toast.show{opacity:1}
+  body.clean #toast{display:none}
   #panel{position:fixed;top:56px;right:10px;width:min(320px,calc(100vw - 20px));background:#1b1d2a;color:#eee;border-radius:12px;padding:14px;z-index:5;display:none;box-shadow:0 8px 30px rgba(0,0,0,.5);font-size:14px}
   #panel.open{display:block}
   #panel label{display:block;margin:8px 0 4px;color:#aab}
@@ -28,6 +31,7 @@
 <body>
 <div id="stage"><canvas id="c"></canvas></div>
 <div id="ctrls"><button id="mus" title="배경음악">🎵</button><button id="snd" title="효과음">🔇</button><button id="gear" title="설정">⚙</button></div>
+<div id="toast"></div>
 <div id="panel">
   <label for="names">참가자 이름 (한 줄에 하나, 비우면 번호만 사용)</label>
   <textarea id="names" placeholder="민수&#10;지영&#10;..."></textarea>
@@ -652,15 +656,25 @@ const Music = {
     [[0, 81, 2], [2, 84, 2], [4, 89, 4], [8, 84, 2], [10, 81, 2], [12, 77, 4]],
     [[0, 83, 2], [2, 86, 2], [4, 83, 2], [6, 79, 2], [8, 74, 4], [12, 79, 2], [14, 83, 2]]
   ],
-  get running() { return !!(this.timer && Sfx.ctx && Sfx.ctx.state === 'running'); },
+  get running() { return !!(this.timer && Sfx.enabled && Sfx.ctx && Sfx.ctx.state === 'running'); },
   start() {
-    if (this.timer || !this.enabled || !Sfx.ctx) return;
-    this.next = Sfx.ctx.currentTime + .08; this.step = 0;
+    if (this.timer || !this.enabled || !Sfx.enabled || !Sfx.ctx) return;
+    const c = Sfx.ctx;
+    Sfx.musicBus.gain.cancelScheduledValues(c.currentTime);
+    Sfx.musicBus.gain.setValueAtTime(.55, c.currentTime);
+    this.next = c.currentTime + .08; this.step = 0;
     this.timer = setInterval(() => this.pump(), 30);
   },
-  stop() { clearInterval(this.timer); this.timer = null; },
+  stop() {
+    clearInterval(this.timer); this.timer = null;
+    if (Sfx.ctx && Sfx.musicBus) {   // 이미 예약된 음도 바로 끊는다
+      const c = Sfx.ctx;
+      Sfx.musicBus.gain.cancelScheduledValues(c.currentTime);
+      Sfx.musicBus.gain.setTargetAtTime(0, c.currentTime, .015);
+    }
+  },
   pump() {
-    const c = Sfx.ctx; if (!c || c.state !== 'running') return;
+    const c = Sfx.ctx; if (!c || c.state !== 'running' || !this.enabled || !Sfx.enabled) return;
     const dur = 60 / this.bpm / 4;
     if (this.next < c.currentTime - .3) this.next = c.currentTime + .05;   // 탭이 멈췄다 돌아온 경우
     while (this.next < c.currentTime + .15) { this.play(this.step, this.next, dur); this.next += dur; this.step++; }
@@ -1210,31 +1224,27 @@ function wakeGear() {
 try { Sfx.enabled = localStorage.getItem('marble.sound') !== '0'; } catch (e) { }
 function syncSnd() { $('snd').textContent = Sfx.enabled && Sfx.on ? '🔊' : '🔇'; }
 try { Music.enabled = localStorage.getItem('marble.music') !== '0'; } catch (e) { }
-function syncMus() { $('mus').textContent = Music.enabled && Music.running ? '🎵' : '🔕'; }
-['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => {
-  Sfx.unlock(); Music.start(); setTimeout(() => { syncSnd(); syncMus(); }, 150);
-}));
+function syncMus() { $('mus').textContent = Music.enabled && Sfx.enabled ? '🎵' : '🔕'; }
+let toastTimer;
+function toast(msg) {
+  const el = $('toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 1400);
+}
+['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => { Sfx.unlock(); Music.start(); }));
+// 🔊 = 모든 소리(효과음+음악), 🎵 = 배경음악만
+$('snd').onclick = () => {
+  Sfx.unlock(); Sfx.enabled = !Sfx.enabled;
+  try { localStorage.setItem('marble.sound', Sfx.enabled ? '1' : '0'); } catch (e) { }
+  if (Sfx.enabled) { Music.start(); Sfx.tick(1); } else Music.stop();
+  syncSnd(); syncMus(); toast(Sfx.enabled ? '소리 켜짐' : '모든 소리 꺼짐');
+};
 $('mus').onclick = () => {
   Sfx.unlock(); Music.enabled = !Music.enabled;
   try { localStorage.setItem('marble.music', Music.enabled ? '1' : '0'); } catch (e) { }
   if (Music.enabled) Music.start(); else Music.stop();
-  setTimeout(syncMus, 150);
+  syncMus(); toast(Music.enabled ? '배경음악 켜짐' : '배경음악 꺼짐');
 };
-$('snd').onclick = () => {
-  Sfx.unlock(); Sfx.enabled = !Sfx.enabled;
-  try { localStorage.setItem('marble.sound', Sfx.enabled ? '1' : '0'); } catch (e) { }
-  if (Sfx.enabled) Sfx.tick(1);
-  setTimeout(syncSnd, 100);
-};
-wakeGear();
-$('apply').onclick = () => {
-  const names = $('names').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 30);
-  const count = Math.max(2, Math.min(30, +$('count').value | 0 || 12));
-  game.settings = { names, count, lotto: $('lotto').checked }; saveSettings(game.settings);
-  game.reset(); $('panel').classList.remove('open');
-};
-$('skip').onclick = () => game.skip();
-addEventListener('keydown', e => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); game.skip(); } });
+setInterval(() => { syncSnd(); syncMus(); }, 500);
 
 // 테스트/녹화 보조용
 window.__marble = { Sim, MAPS, makeMap, mulberry32, game, STEP, Sfx, Music };
