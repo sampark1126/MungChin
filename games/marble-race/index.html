@@ -16,6 +16,7 @@
   #panel.open{display:block}
   #panel label{display:block;margin:8px 0 4px;color:#aab}
   #panel textarea{width:100%;height:120px;box-sizing:border-box;border-radius:8px;border:1px solid #444;background:#10121a;color:#eee;padding:8px;font:inherit;resize:vertical}
+  #panel input[type=checkbox]{vertical-align:middle;margin-right:6px}
   #panel input[type=number]{width:80px;border-radius:8px;border:1px solid #444;background:#10121a;color:#eee;padding:6px}
   #panel .row{display:flex;gap:8px;margin-top:12px}
   #panel button{flex:1;padding:9px;border:0;border-radius:8px;background:#5b6cff;color:#fff;font:inherit;cursor:pointer}
@@ -30,7 +31,8 @@
 <div id="panel">
   <label for="names">참가자 이름 (한 줄에 하나, 비우면 번호만 사용)</label>
   <textarea id="names" placeholder="민수&#10;지영&#10;..."></textarea>
-  <label for="count">공 개수 (이름이 없을 때, 2~30)</label>
+  <label><input id="lotto" type="checkbox" checked> 로또 모드 (공 45개, 7라운드 = 1회 추첨, 우승 번호는 제외)</label>
+  <label for="count">일반 모드 공 개수 (이름이 없을 때, 2~30)</label>
   <input id="count" type="number" min="2" max="30" value="12">
   <div class="row">
     <button id="apply">적용 + 새 라운드</button>
@@ -51,7 +53,8 @@ const W = 1080, VIEW_H = 1920;
 const RUBBER = 0.22;
 const G = 900, VMAX = 400, DRAG = 0.12, STEP = 1 / 240;
 const COUNT_T = 3, RACE_CAP = 49, RESULT_T = 8;
-const ANIMALS = ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐤','🦄','🐴','🐗','🐺','🐲','🦉','🐙','🐳','🐬','🐢','🐥','🦝'];
+const LOTTO_RESULT_T = 4, LOTTO_SUMMARY_T = 11, LOTTO_N = 45, LOTTO_R = 17;
+const ANIMALS = ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐤','🦄','🐴','🐗','🐺','🐲','🦉','🐙','🐳','🐬','🐢','🐥','🦝','🦆','🦅','🦇','🐝','🦋','🐞','🦀','🦑','🐡','🦈','🐊','🦒','🐘','🦘','🦔'];
 const FONT = "Pretendard,'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif";
 
 function mulberry32(a) {
@@ -156,7 +159,39 @@ function mapPortal(rng) {
   return m;
 }
 
-const MAPS = [mapPlinko, mapPortal, mapSpinners, mapBumpers, mapFunnels];
+function mapWindmill(rng) {
+  const m = baseMap('풍차 마을', 7200, ['#134e4a', '#f9a826'], '#ffe08a');
+  let row = 0;
+  for (let y = 620; y < m.H - 900; y += 520, row++) {
+    for (const fx of [.2, .5, .8]) {
+      const cx = W * fx + (rng() - .5) * 40, cy = y + (rng() - .5) * 40;
+      const speed = (rng() < .5 ? -1 : 1) * (1.0 + rng() * .7), ph = rng() * 6.28;
+      for (let k = 0; k < 2; k++) m.spinners.push({ cx, cy, L: 110, r: 10, speed, phase: ph + k * Math.PI / 2 });
+    }
+    for (let x = row % 2 ? 150 : 260; x < W - 110; x += 220) m.pegs.push({ x, y: y + 270 + (rng() - .5) * 30, r: 14 });
+  }
+  return m;
+}
+
+function mapBonus(rng) {
+  const m = baseMap('★ 보너스 카오스', 8400, ['#2a1b00', '#a06a00'], '#ffd700');
+  m.chaos = true; m.bonus = true;
+  let row = 0;
+  for (let y = 520; y < m.H - 700; y += 230, row++) {
+    for (let x = row % 2 ? 170 : 90; x < W - 70; x += 170) m.pegs.push({ x: x + (rng() - .5) * 28, y: y + (rng() - .5) * 28, r: 14 });
+  }
+  for (let y = 900; y < m.H - 1500; y += 1100) {
+    for (const fx of [.3, .7]) {
+      const cx = W * fx + (rng() - .5) * 40, speed = (rng() < .5 ? -1 : 1) * (1.2 + rng() * .8), ph = rng() * 6.28;
+      for (let k = 0; k < 2; k++) m.spinners.push({ cx, cy: y, L: 100, r: 10, speed, phase: ph + k * Math.PI / 2 });
+    }
+  }
+  // 풍차와 겹치는 핀 정리
+  m.pegs = m.pegs.filter(q => m.spinners.every(sp => Math.hypot(q.x - sp.cx, q.y - sp.cy) > sp.L + 70));
+  return m;
+}
+
+const MAPS = [mapPlinko, mapPortal, mapSpinners, mapBumpers, mapFunnels, mapWindmill, mapBonus];
 
 /* 벽을 따라 아무 방해 없이 떨어지는 길이 생기지 않도록 양쪽 벽에 비스듬한 턱을 단다 */
 function addFins(m, rng) {
@@ -172,7 +207,7 @@ function addFins(m, rng) {
   m.segs.push(...segs);
   return m;
 }
-const FINS = new Set([mapPlinko, mapPortal, mapSpinners, mapBumpers]);
+const FINS = new Set([mapPlinko, mapPortal, mapSpinners, mapBumpers, mapWindmill, mapBonus]);
 function segDist(px, py, s) {
   const ex = s.x2 - s.x1, ey = s.y2 - s.y1;
   let t = ((px - s.x1) * ex + (py - s.y1) * ey) / (ex * ex + ey * ey);
@@ -211,14 +246,15 @@ function addTwists(m, rng) {
   const Fy = m.finishY;
   m.gates = []; m.sliders = [];
   const portalsBefore = m.portals.length;
-  for (const [y0, closed, period] of [[Fy * .45, 1.8, 3.4], [Fy * .72, 1.8, 3.4]]) {
+  const chaos = !!m.chaos;
+  for (const [y0, closed, period] of (chaos ? [[Fy * .28, 1.5, 2.8], [Fy * .45, 1.8, 3.2], [Fy * .6, 1.5, 2.8], [Fy * .74, 1.8, 3.2]] : [[Fy * .45, 1.8, 3.4], [Fy * .72, 1.8, 3.4]])) {
     const y = pickClearY(m, y0);
     clearBand(m, y, 60);
     m.gates.push({ y, r: 9, closed, period: period + rng() * .4, phase: rng() * 3.8 });
   }
   // 결승 직전 셔터: 선두가 먼저 도착해도 뒤따르는 공들이 모일 때까지 닫혀 있다가 한꺼번에 열린다 (격차 리셋)
   { const y = pickClearY(m, Fy - 560); clearBand(m, y, 60); m.gates.push({ y, r: 9, final: true, closed: 1, period: 2, phase: 0 }); }
-  for (const off of [2300, 1700, 1100]) {
+  for (const off of (chaos ? [2700, 2200, 1700, 1250, 800] : [2300, 1700, 1100])) {
     const y = pickClearY(m, Fy - off);
     clearBand(m, y, 80);
     m.sliders.push({ cy: y, cx: W / 2, L: 110, r: 10, A: 290, w: 1.0 + rng() * .8, ph: rng() * 6.28 });
@@ -227,12 +263,18 @@ function addTwists(m, rng) {
   addPortal(m, rng, pickClearY(m, Fy * .62), 1000, 130);
   addPortal(m, rng, pickClearY(m, Fy * .79), -1500, 0);      // 함정(뒤로)
   addPortal(m, rng, pickClearY(m, Fy * .87), -1300, 0);
+  if (chaos) {
+    addPortal(m, rng, pickClearY(m, Fy * .18), 1800, 130);
+    addPortal(m, rng, pickClearY(m, Fy * .52), 1200, 130);
+    addPortal(m, rng, pickClearY(m, Fy * .69), -1700, 0);
+    addPortal(m, rng, pickClearY(m, Fy * .93), -1000, 0);
+  }
   m.twistPortals = m.portals.length - portalsBefore;
 }
 
 /* 핀볼처럼 강하게 튕겨내는 범퍼를 군데군데 */
 function addBumpers(m, rng) {
-  const Fy = m.finishY, want = Math.round((Fy - 1300) / 650);
+  const Fy = m.finishY, want = Math.round((Fy - 1300) / (m.chaos ? 400 : 650));
   let placed = 0;
   for (let i = 0; i < 900 && placed < want; i++) {
     const x = 140 + rng() * (W - 280), y = 720 + rng() * (Fy - 1300);
@@ -316,18 +358,19 @@ function makeMap(idx, seed) {
 
 /* ---------------- 물리 시뮬레이션 ---------------- */
 class Sim {
-  constructor(map, names, seed) {
+  constructor(map, names, seed, ids, rOverride) {
     this.map = map;
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0);
     this.t = 0;
     this.finCount = 0;
-    this.onHit = null; this.onFinish = null;
+    this.onHit = null; this.onFinish = null; this.lotto = false;
     this.gustDir = 0; this.gusts = []; this.medY = 0;
-    this.pops = []; this.nextPop = 6 + this.rng() * 2; this.popToast = -99;
-    for (let tt = 7 + this.rng() * 4; tt < RACE_CAP; tt += 7 + this.rng() * 5) this.gusts.push({ t0: tt, dur: 1.2, dir: this.rng() < .5 ? -1 : 1 });
+    this.chaos = !!map.chaos;
+    this.pops = []; this.nextPop = (this.chaos ? 4 : 6) + this.rng() * 2; this.popToast = -99;
+    for (let tt = (this.chaos ? 5 : 7) + this.rng() * 4; tt < RACE_CAP; tt += (this.chaos ? 4 : 7) + this.rng() * (this.chaos ? 3 : 5)) this.gusts.push({ t0: tt, dur: 1.2, dir: this.rng() < .5 ? -1 : 1 });
     for (const sl of map.sliders || []) sl.x = sl.cx + sl.A * Math.sin(sl.ph);
     const n = names.length;
-    const r = n > 20 ? 19 : 24;
+    const r = rOverride || (n > 20 ? 19 : 24);
     const order = names.map((_, i) => i);
     for (let i = n - 1; i > 0; i--) { const j = Math.floor(this.rng() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
     const perRow = Math.floor((W - 200) / (2 * r + 10));
@@ -337,10 +380,10 @@ class Sim {
       const inRow = Math.min(perRow, n - row * perRow);
       const span = (inRow - 1) * (2 * r + 10);
       return {
-        id: i + 1, name, r, emoji: ANIMALS[i % ANIMALS.length], hits: 0, pcd: 0, flash: 0,
-        color: `hsl(${(i * 137.5) % 360},85%,50%)`,
+        id: ids ? ids[i] : i + 1, name, r, emoji: ANIMALS[((ids ? ids[i] : i + 1) - 1) % ANIMALS.length], hits: 0, pcd: 0, flash: 0,
+        color: `hsl(${(((ids ? ids[i] : i + 1) - 1) * 137.5) % 360},85%,50%)`,
         x: W / 2 - span / 2 + col * (2 * r + 10) + (this.rng() - .5) * 6,
-        y: 330 + row * (2 * r + 12),
+        y: 330 + row * (2 * r + (r < 20 ? 34 : 12)),
         vx: 0, vy: 0, finished: false, rank: 0, time: 0, best: 0, bestT: 0
       };
     });
@@ -400,7 +443,7 @@ class Sim {
         if (!g.opened) {
           const arrived = balls.filter(b => b.y > g.y - 170).length;
           if (arrived > 0 && g.t1 === undefined) g.t1 = this.t;
-          if (arrived >= Math.ceil(balls.length * .6) || (g.t1 !== undefined && this.t - g.t1 > 6.5) || this.t > RACE_CAP - 9) g.opened = true;
+          if (arrived >= Math.ceil(balls.length * (this.lotto ? .35 : .6)) || (g.t1 !== undefined && this.t - g.t1 > (this.lotto ? 4 : 6.5)) || this.t > RACE_CAP - 9) g.opened = true;
         }
         open = !!g.opened;
       } else open = ((this.t + g.phase) % g.period) >= g.closed;
@@ -413,8 +456,9 @@ class Sim {
     this.gustDir = gd;
     // 돌발 장애물: 선두 바로 앞에 경고 후 강한 범퍼가 잠시 나타난다
     if (this.t >= this.nextPop) {
-      this.nextPop = this.t + 5 + this.rng() * 2.5;
-      const lead = balls.filter(b => !b.finished && b.y > 500 && b.y < m.finishY - 800).sort((a, c) => c.y - a.y)[0];
+      this.nextPop = this.t + (this.chaos ? 3 + this.rng() * 1.5 : 5 + this.rng() * 2.5);
+      const top3 = balls.filter(b => !b.finished && b.y > 500 && b.y < m.finishY - 800).sort((a, c) => c.y - a.y).slice(0, this.chaos ? 3 : 1);
+      const lead = top3[Math.floor(this.rng() * top3.length)];
       if (lead) {
         const px = Math.max(150, Math.min(W - 150, lead.x + (this.rng() - .5) * 140));
         this.pops.push({ x: px, y: lead.y + 440, r: 46, t0: this.t, warn: .7, life: 3.6 });
@@ -512,16 +556,19 @@ const params = new URLSearchParams(location.search);
 if (params.get('clean') === '1') document.body.classList.add('clean');
 
 function loadSettings() {
-  let names = [], count = 12;
+  let names = [], count = 12, lotto = true;
   try {
     const s = JSON.parse(localStorage.getItem('marble.settings') || '{}');
     if (Array.isArray(s.names)) names = s.names;
     if (s.count) count = s.count;
+    if (typeof s.lotto === 'boolean') lotto = s.lotto;
   } catch (e) { /* 저장소를 못 쓰는 환경 */ }
   if (params.get('names')) names = params.get('names').split(',').map(s => s.trim()).filter(Boolean);
   if (params.get('balls')) count = +params.get('balls');
+  if (params.get('lotto') === '0') lotto = false;
+  if (params.get('lotto') === '1') lotto = true;
   count = Math.max(2, Math.min(30, count | 0 || 12));
-  return { names: names.slice(0, 30), count };
+  return { names: names.slice(0, 30), count, lotto };
 }
 function saveSettings(s) { try { localStorage.setItem('marble.settings', JSON.stringify(s)); } catch (e) { } }
 
@@ -638,7 +685,21 @@ class Game {
     this.mapBag = [];
     this.fixedSeed = params.has('seed') ? +params.get('seed') : null;
     this.fixedMap = params.has('map') ? +params.get('map') : null;
+    this.reset();
+  }
+
+  get lotto() { return !!this.settings.lotto; }
+
+  reset() {
+    this.round = 0; this.cycle = 1; this.cycleRound = 0; this.drawn = []; this.cycleMaps = null; this.mapBag = [];
     this.startRound();
+  }
+
+  /* 한 사이클: 일반 맵 6개를 섞어서 + 마지막은 항상 보너스 맵 */
+  makeCycleMaps() {
+    const bag = MAPS.slice(0, -1).map((_, i) => i);
+    for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+    return [...bag, MAPS.length - 1];
   }
 
   participants() {
@@ -650,7 +711,7 @@ class Game {
   nextMapIndex() {
     if (this.fixedMap !== null && !isNaN(this.fixedMap)) return this.fixedMap % MAPS.length;
     if (!this.mapBag.length) {
-      this.mapBag = MAPS.map((_, i) => i);
+      this.mapBag = MAPS.slice(0, -1).map((_, i) => i);
       for (let i = this.mapBag.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [this.mapBag[i], this.mapBag[j]] = [this.mapBag[j], this.mapBag[i]];
@@ -662,10 +723,21 @@ class Game {
   startRound() {
     this.round++;
     this.cam = 0;
+    let ids = null, idx;
+    if (this.lotto) {
+      if (this.drawn.length >= 7) { this.drawn = []; this.cycle++; this.cycleRound = 0; this.cycleMaps = null; }
+      if (!this.cycleMaps) this.cycleMaps = this.makeCycleMaps();
+      this.cycleRound++;
+      idx = this.fixedMap !== null && !isNaN(this.fixedMap) ? this.fixedMap % MAPS.length : this.cycleMaps[this.cycleRound - 1];
+      ids = Array.from({ length: LOTTO_N }, (_, i) => i + 1).filter(n => !this.drawn.includes(n));
+    } else idx = this.nextMapIndex();
+    this.bonusRound = this.lotto && MAPS[idx] === mapBonus;
     const seed = this.fixedSeed !== null ? this.fixedSeed + this.round - 1 : (Math.random() * 2 ** 31) | 0;
-    const idx = this.nextMapIndex();
     const map = makeMap(idx, seed);
-    this.sim = new Sim(map, this.participants().map(p => p.name), seed);
+    this.sim = ids
+      ? new Sim(map, ids.map(() => ''), seed, ids, LOTTO_R)
+      : new Sim(map, this.participants().map(p => p.name), seed);
+    this.sim.lotto = this.lotto;
     this.sim.onHit = (kind, speed, b) => {
       if (!b.any && (b.y < this.cam - 120 || b.y > this.cam + VIEW_H + 120)) return;   // 화면 밖 소리는 내지 않음
       Sfx.hit(kind, speed);
@@ -678,7 +750,7 @@ class Game {
     this.confetti = []; this.winnerShown = false; this.final = null;
   }
 
-  skip() { this.startRound(); }
+  skip() { if (this.lotto) this.cycleRound = Math.max(0, this.cycleRound - 1); this.startRound(); }
 
   update(dt) {
     dt = Math.min(dt, .05);
@@ -693,15 +765,25 @@ class Game {
       this.acc += dt;
       while (this.acc >= STEP) { sim.step(STEP); this.acc -= STEP; }
       if (sim.finCount > 0 && !this.winnerShown) { this.winnerShown = true; this.winnerAt = sim.t; this.spawnConfetti(); }
-      if (sim.allDone || sim.t >= RACE_CAP) {
+      const finished = this.lotto ? (sim.finCount > 0 && sim.t - this.winnerAt > 1.3) : sim.allDone;
+      if (finished || sim.t >= RACE_CAP) {
         this.phase = 'result'; this.phaseT = 0; this.final = sim.standings();
         if (!this.winnerShown) { this.winnerShown = true; this.spawnConfetti(); }
+        if (this.lotto) { this.drawn.push(this.final[0].id); this.spawnConfetti(); }
       }
+    } else if (this.phase === 'summary') {
+      this.phaseT += dt;
+      if (this.phaseT >= LOTTO_SUMMARY_T) this.startRound();
     } else {
       this.phaseT += dt;
       this.acc += dt;
       while (this.acc >= STEP) { sim.step(STEP); this.acc -= STEP; }
-      if (this.phaseT >= RESULT_T) this.startRound();
+      if (this.lotto) {
+        if (this.phaseT >= LOTTO_RESULT_T) {
+          if (this.drawn.length >= 7) { this.phase = 'summary'; this.phaseT = 0; Sfx.fanfare(); this.spawnConfetti(); }
+          else this.startRound();
+        }
+      } else if (this.phaseT >= RESULT_T) this.startRound();
     }
     this.updateCamera(dt);
     for (const c of this.confetti) { c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 500 * dt; c.rot += c.vr * dt; }
@@ -712,7 +794,7 @@ class Game {
     const sim = this.sim, H = sim.map.H;
     let target;
     if (this.phase === 'count') target = 0;
-    else if (this.phase === 'result') target = H - VIEW_H;
+    else if (this.phase === 'result' || this.phase === 'summary') target = H - VIEW_H;
     else {
       const ys = sim.balls.filter(b => !b.finished).map(b => b.y).sort((a, b) => b - a);
       const lead = ys.length ? (ys[0] + (ys[1] ?? ys[0]) + (ys[2] ?? ys[0])) / 3 : H;
@@ -903,39 +985,76 @@ function drawWorld(game) {
       ctx.strokeStyle = `rgba(255,255,255,${b.flash * 1.6})`; ctx.lineWidth = 6;
       ctx.beginPath(); ctx.arc(b.x, b.y, b.r + (.5 - b.flash) * 160, 0, 7); ctx.stroke();
     }
-    ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.strokeStyle = b.color; ctx.lineWidth = 5;
+    ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.strokeStyle = b.color; ctx.lineWidth = b.r < 20 ? 3.5 : 5;
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); ctx.stroke();
     if (b === lead) { ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 8, 0, 7); ctx.stroke(); }
     animal(b.emoji, b.x, b.y + 1, b.r * 1.7);
   }
   // 번호표: 회전·충돌과 무관하게 항상 얼굴 바로 위에 똑바로 붙어 다님
   for (const b of vis) {
-    const label = String(b.id), bw = 22 + label.length * 15, by = b.y - b.r - 22;
-    ctx.fillStyle = b.color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
-    rrect(b.x - bw / 2, by - 15, bw, 30, 15); ctx.fill(); ctx.stroke();
-    text(label, b.x, by + 1, 22, '#fff', 'center', false);
-    if (b.name) text(b.name, b.x, by - 30, 24, '#fff');
+    const label = String(b.id), fs = Math.max(19, Math.round(b.r * .95)), bh = fs + 8, bw = 16 + label.length * fs * .62, by = b.y - b.r - bh / 2 - 3;
+    ctx.fillStyle = b.color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5;
+    rrect(b.x - bw / 2, by - bh / 2, bw, bh, bh / 2); ctx.fill(); ctx.stroke();
+    text(label, b.x, by + 1, fs, '#fff', 'center', false);
+    if (b.name) text(b.name, b.x, by - bh / 2 - 14, 24, '#fff');
   }
   ctx.restore();
 }
 
 function fmtTime(t) { const s = Math.max(0, Math.floor(t)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
+function drawTray(game, m) {   // 당첨 번호 칸: 6개 + 보너스
+  const y = VIEW_H - 285;
+  ctx.fillStyle = 'rgba(0,0,0,.5)'; rrect(40, y - 62, W - 80, 124, 36); ctx.fill();
+  const xs = [0, 1, 2, 3, 4, 5].map(i => 120 + i * 112);
+  xs.push(W - 130);
+  text('+', W - 215, y, 56, '#ffd700');
+  xs.forEach((x, i) => {
+    const n = game.drawn[i], bonus = i === 6;
+    ctx.fillStyle = n ? 'rgba(255,255,255,.96)' : 'rgba(255,255,255,.12)';
+    ctx.strokeStyle = bonus ? '#ffd700' : n ? m.accent : 'rgba(255,255,255,.35)'; ctx.lineWidth = n ? 5 : 3;
+    ctx.beginPath(); ctx.arc(x, y, 42, 0, 7); ctx.fill(); ctx.stroke();
+    if (n) {
+      animal(ANIMALS[(n - 1) % ANIMALS.length], x, y - 4, 58);
+      ctx.fillStyle = bonus ? '#ffd700' : m.accent; rrect(x - 24, y + 22, 48, 28, 14); ctx.fill();
+      text(String(n), x, y + 37, 24, bonus ? '#3a2600' : '#fff', 'center', false);
+    } else text('?', x, y + 2, 44, 'rgba(255,255,255,.5)', 'center', false);
+  });
+}
+
 function drawHUD(game) {
   const sim = game.sim, m = sim.map;
 
   // 상단 바
   ctx.fillStyle = 'rgba(0,0,0,.42)'; rrect(30, 40, W - 60, 150, 30); ctx.fill();
-  text(`ROUND ${game.round}`, 70, 92, 44, '#fff', 'left');
+  if (game.lotto) {
+    text(`제 ${game.cycle}회 추첨 · ${game.cycleRound}/7`, 70, 92, 44, game.bonusRound ? '#ffd700' : '#fff', 'left');
+  } else text(`ROUND ${game.round}`, 70, 92, 44, '#fff', 'left');
   text(m.name, 70, 148, 40, m.accent, 'left');
   const raceT = game.phase === 'count' ? 0 : sim.t;
   text(fmtTime(Math.min(raceT, RACE_CAP)), W - 70, 115, 90, '#fff', 'right');
 
   // 라운드 진행 바
-  const total = COUNT_T + RACE_CAP + RESULT_T;
-  const prog = Math.min(1, game.clock / total);
-  ctx.fillStyle = 'rgba(255,255,255,.2)'; rrect(60, 200, W - 120, 12, 6); ctx.fill();
-  ctx.fillStyle = m.accent; rrect(60, 200, Math.max(12, (W - 120) * prog), 12, 6); ctx.fill();
+  if (game.lotto) {   // 7칸 진행 표시 (마지막 칸은 보너스)
+    const segW = (W - 120 - 6 * 10) / 7;
+    for (let i = 0; i < 7; i++) {
+      const done = i < game.drawn.length, cur = i === game.cycleRound - 1 && !done;
+      ctx.fillStyle = done ? (i === 6 ? '#ffd700' : m.accent) : cur ? 'rgba(255,255,255,.8)' : 'rgba(255,255,255,.2)';
+      rrect(60 + i * (segW + 10), 200, segW, 12, 6); ctx.fill();
+    }
+  } else {
+    const total = COUNT_T + RACE_CAP + RESULT_T;
+    const prog = Math.min(1, game.clock / total);
+    ctx.fillStyle = 'rgba(255,255,255,.2)'; rrect(60, 200, W - 120, 12, 6); ctx.fill();
+    ctx.fillStyle = m.accent; rrect(60, 200, Math.max(12, (W - 120) * prog), 12, 6); ctx.fill();
+  }
+  if (game.bonusRound && game.phase !== 'summary') {
+    const pulse = .75 + .25 * Math.sin(performance.now() / 180);
+    ctx.save(); ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#ffd700'; rrect(W / 2 - 150, 226, 300, 54, 27); ctx.fill();
+    text('★ BONUS ROUND ★', W / 2, 254, 34, '#3a2600', 'center', false);
+    ctx.restore();
+  }
 
   // 실시간 순위 (우측)
   if (game.phase !== 'count') {   // 출발 전에는 시작 줄을 가리지 않도록 숨김
@@ -954,13 +1073,13 @@ function drawHUD(game) {
   ctx.fillStyle = 'rgba(0,0,0,.42)'; rrect(tx - 20, ty0 - 24, 40, tyl + 48, 20); ctx.fill();
   for (const b of sim.balls) {
     const p = Math.max(0, Math.min(1, b.y / sim.map.finishY));
-    animal(b.emoji, tx, ty0 + p * tyl, 26);
+    animal(b.emoji, tx, ty0 + p * tyl, sim.balls.length > 30 ? 18 : 26);
   }
   ctx.fillStyle = '#fff'; ctx.fillRect(tx - 20, ty0 + tyl + 28, 40, 6);
 
   // 하단 안내
   ctx.fillStyle = 'rgba(0,0,0,.5)'; rrect(60, VIEW_H - 190, W - 120, 120, 36); ctx.fill();
-  text('응원할 공 번호를 댓글로 남겨보세요!', W / 2, VIEW_H - 130, 46, '#fff');
+  text(game.lotto ? '응원하는 번호를 댓글로 남겨보세요!' : '응원할 공 번호를 댓글로 남겨보세요!', W / 2, VIEW_H - 130, 46, '#fff');
 
   // 돌풍 / 돌발 장애물 안내
   if (sim.gustDir && game.phase === 'race') {
@@ -1004,7 +1123,35 @@ function drawHUD(game) {
   }
 
   // 결과
-  if (game.phase === 'result' && game.final) {
+  if (game.lotto && (game.phase === 'result' || game.phase === 'summary') && game.final) {
+    ctx.fillStyle = game.phase === 'summary' ? 'rgba(0,0,0,.9)' : 'rgba(0,0,0,.66)'; ctx.fillRect(0, 0, W, VIEW_H);
+    if (game.phase === 'result') {
+      const w = game.final[0], k = game.drawn.length, bonus = k === 7;
+      text(bonus ? '★ 보너스 번호 ★' : `${k}번째 추첨 번호`, W / 2, 520, 84, bonus ? '#ffd700' : '#ffd166');
+      ctx.fillStyle = 'rgba(255,255,255,.96)'; ctx.strokeStyle = bonus ? '#ffd700' : w.color; ctx.lineWidth = 12;
+      ctx.beginPath(); ctx.arc(W / 2, 800, 190, 0, 7); ctx.fill(); ctx.stroke();
+      animal(w.emoji, W / 2, 800, 270);
+      text(String(w.id), W / 2, 1110, 230, '#fff');
+      text(`남은 공 ${LOTTO_N - k}개`, W / 2, 1330, 44, m.accent);
+    } else {
+      const sorted = [...game.drawn.slice(0, 6)].sort((a, b) => a - b), bonus = game.drawn[6];
+      text(`제 ${game.cycle}회 당첨 번호`, W / 2, 440, 92, '#ffd166');
+      sorted.forEach((n, i) => {
+        const x = W / 2 + ((i % 3) - 1) * 300, y = 700 + Math.floor(i / 3) * 330;
+        ctx.fillStyle = 'rgba(255,255,255,.96)'; ctx.strokeStyle = m.accent; ctx.lineWidth = 8;
+        ctx.beginPath(); ctx.arc(x, y, 100, 0, 7); ctx.fill(); ctx.stroke();
+        animal(ANIMALS[(n - 1) % ANIMALS.length], x, y - 4, 130);
+        text(String(n), x, y + 125, 76, '#fff');
+      });
+      text('+ 보너스', W / 2, 1380, 54, '#ffd700');
+      const bx = W / 2, by = 1540;
+      ctx.fillStyle = 'rgba(255,255,255,.96)'; ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 10;
+      ctx.beginPath(); ctx.arc(bx - 90, by, 90, 0, 7); ctx.fill(); ctx.stroke();
+      animal(ANIMALS[(bonus - 1) % ANIMALS.length], bx - 90, by - 4, 120);
+      text(String(bonus), bx + 90, by, 110, '#ffd700', 'left');
+      text(`다음 추첨까지 ${Math.ceil(LOTTO_SUMMARY_T - game.phaseT)}초`, W / 2, 1720, 40, m.accent);
+    }
+  } else if (game.phase === 'result' && game.final) {
     ctx.fillStyle = 'rgba(0,0,0,.62)'; ctx.fillRect(0, 0, W, VIEW_H);
     text('🏆 우승', W / 2, 520, 90, '#ffd166');  // 이모지는 폰트가 없으면 빈칸으로 보일 수 있음
     const w = game.final[0];
@@ -1021,6 +1168,8 @@ function drawHUD(game) {
     const left = Math.ceil(RESULT_T - game.phaseT);
     text(`다음 라운드까지 ${left}초`, W / 2, 1530, 44, m.accent);
   }
+
+  if (game.lotto && game.phase !== 'summary') drawTray(game, m);
 
   for (const c of game.confetti) {
     ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot); ctx.fillStyle = c.c;
@@ -1048,6 +1197,7 @@ requestAnimationFrame(frame);
 const $ = id => document.getElementById(id);
 $('names').value = game.settings.names.join('\n');
 $('count').value = game.settings.count;
+$('lotto').checked = game.settings.lotto;
 $('gear').onclick = () => $('panel').classList.toggle('open');
 // 녹화 시 화면에 안 보이도록 버튼은 몇 초 뒤 숨김 (화면을 터치하면 다시 나타남)
 let gearTimer;
@@ -1080,8 +1230,8 @@ wakeGear();
 $('apply').onclick = () => {
   const names = $('names').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 30);
   const count = Math.max(2, Math.min(30, +$('count').value | 0 || 12));
-  game.settings = { names, count }; saveSettings(game.settings);
-  game.round = 0; game.startRound(); $('panel').classList.remove('open');
+  game.settings = { names, count, lotto: $('lotto').checked }; saveSettings(game.settings);
+  game.reset(); $('panel').classList.remove('open');
 };
 $('skip').onclick = () => game.skip();
 addEventListener('keydown', e => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); game.skip(); } });
